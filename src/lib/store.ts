@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile, access } from 'node:fs/promises';
 import path from 'node:path';
-import { del, get, head, put, BlobPreconditionFailedError } from '@vercel/blob';
+import { del, get, head, put, BlobNotFoundError, BlobPreconditionFailedError } from '@vercel/blob';
 
 export type StoredAnime = {
  id: string;
@@ -140,7 +140,8 @@ export async function posterExists(key: string): Promise<boolean> {
  const dir = localDir();
  if (dir) { try { await access(path.join(dir, POSTER_DIR, key)); return true; } catch { return false; } }
  if (!blobConfigured()) throw new Error('Storage not configured');
- return !!(await head(blobPosterPathname(key)));
+ try { return !!(await head(blobPosterPathname(key))); }
+ catch (error) { if (error instanceof BlobNotFoundError) return false; throw error; } // head() throws, not returns null, for a missing blob.
 }
 export async function writePoster(key: string, bytes: Buffer): Promise<void> {
  const dir = localDir();
