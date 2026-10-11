@@ -10,6 +10,6 @@ export function failure(error: unknown) {
  if (error instanceof HttpError) return Response.json({ error: error.message }, { status: error.status });
  if (error instanceof ZodError) return Response.json({ error: 'Invalid input' }, { status: 400 });
  if ((error as {code?: string})?.code === '23505') return Response.json({ error: 'Anime already exists' }, { status: 409 });
- console.error('Request failed:', error instanceof Error ? error.name : 'Unknown error');
+ console.error('Request failed:', error instanceof Error ? `${error.name}: ${error.message}` : 'Unknown error');
  return Response.json({ error: 'Service unavailable. Try again.' }, { status: 503 });
 }
