@@ -49,7 +49,28 @@ function blobPosterPathname(key: string) { return `${POSTER_DIR}/${key}`; }
 
 type Snapshot = { doc: Collection | null; etag: string | null };
 
-async function readSnapshot(): Promise<Snapshot> {
+// A write must be conditioned on the object's true ETag. The ETag on a CDN response can differ in form
+// from the one the Blob API checks (weak or encoding-suffixed once the document grows), which made every
+// later write fail with "ETag mismatch". So when we intend to write, the ETag comes from head() (the API),
+// and we only accept the read if the content provably belongs to that version.
+async function readBlobForWrite(): Promise<Snapshot> {
+ for (let attempt = 0; attempt < 3; attempt++) {
+  let before;
+  try { before = await head(blobDocPathname()); }
+  catch (error) { if (error instanceof BlobNotFoundError) return { doc: null, etag: null }; throw error; }
+  const found = await get(blobDocPathname(), { access: 'private', useCache: false });
+  if (!found) continue;
+  const text = await new Response(found.stream).text();
+  let after;
+  try { after = await head(blobDocPathname()); }
+  catch (error) { if (error instanceof BlobNotFoundError) continue; throw error; }
+  // Same version before and after the read, and the bytes we read are the bytes of that version.
+  if (after.etag === before.etag && Buffer.byteLength(text, 'utf8') === before.size) return { doc: parseCollection(text), etag: before.etag };
+ }
+ throw new Error('Stored collection kept changing while reading');
+}
+
+async function readSnapshot(forWrite = false): Promise<Snapshot> {
  const dir = localDir();
  if (dir) {
   try {
@@ -61,10 +82,11 @@ async function readSnapshot(): Promise<Snapshot> {
   }
  }
  if (!blobConfigured()) throw new Error('Storage not configured');
+ if (forWrite) return readBlobForWrite();
  const found = await get(blobDocPathname(), { access: 'private', useCache: false });
  if (!found) return { doc: null, etag: null };
  const text = await new Response(found.stream).text();
- return { doc: parseCollection(text), etag: found.blob.etag };
+ return { doc: parseCollection(text), etag: null };
 }
 
 function parseCollection(text: string): Collection {
@@ -106,7 +128,7 @@ let queue: Promise<unknown> = Promise.resolve();
 export async function mutate<T>(change: (doc: Collection) => Promise<T> | T): Promise<T> {
  const task = queue.then(async () => {
   for (let attempt = 1; ; attempt++) {
-   const before = await readSnapshot();
+   const before = await readSnapshot(true);
    const doc = before.doc ?? emptyCollection();
    const result = await change(doc);
    try { await writeSnapshot(doc, before.etag); return result; }
