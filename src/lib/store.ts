@@ -42,7 +42,8 @@ function localDir(): string | null {
  const dir = process.env.DATA_DIR || 'data';
  return path.resolve(dir);
 }
-function blobConfigured() { return !!process.env.BLOB_READ_WRITE_TOKEN; }
+// Vercel Blob authenticates with either a read-write token or, on newer stores, BLOB_STORE_ID plus the runtime OIDC token.
+function blobConfigured() { return !!(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID); }
 function blobDocPathname() { return DOC_PATHNAME; }
 function blobPosterPathname(key: string) { return `${POSTER_DIR}/${key}`; }
 
